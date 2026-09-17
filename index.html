@@ -244,7 +244,7 @@ const BULTUM = {"meta": {"term": "Fall 2026-2027", "growthPeriod": "Fall 2025 - 
 const DEFAULT_CONFIG = {
   season:"Fall",
   goals:{ achievement:46, growth:60 },
-  capacities:{ k3Math:32, g48Math:46, reading:45, groves:null, grovesK3PerGrade:4 }, // groves(4–8 T2) set by admin; Groves T3 K–3 = 4 per grade
+  capacities:{ k3Math:32, g48Math:46, reading:45, groves:null, grovesK3PerGrade:4, grovesG48PerClass:4 }, // Groves T3 K–3 = 4/grade; Groves T2 4–8 = 4/class
   planTargets:{ reading:3, k3Math:4, g48Math:8 },
   frequency:{ reading:"2–3 days/week", groves:"4 days/week" },
   msMathTeacher:"Meck", msReadingTeacher:"Pieper", msContentTeacher:"Lucas",
@@ -1107,9 +1107,15 @@ function planNudge(s,mode){
 }
 function grovesEvidence(s){
   const p=sp(s.id); const ev=p.evidence||{};
-  const items=[["gap","Large skill gap"],["history","Tier 2 hasn’t been enough"],["class","Classroom reading confirms need"],["other2","Other assessment agrees"]];
+  const k3 = SECTION && SECTION.gradeNum>=0 && SECTION.gradeNum<=3;
+  const q = k3
+    ? "What evidence tells you this student needs intensive Tier 3 (Groves) support?"
+    : "What evidence tells you this student needs targeted Tier 2 reading (Groves) support?";
+  const items = k3
+    ? [["gap","Large skill gap"],["history","Tier 2 hasn’t been enough"],["class","Classroom reading confirms need"],["other2","Other assessment agrees"]]
+    : [["gap","Large skill gap"],["history","Tier 1 hasn’t been enough"],["class","Classroom reading confirms need"],["other2","Other assessment agrees"]];
   return `<div class="card" style="margin:9px 0 0;padding:13px 15px;background:var(--paper-2)">
-    <div class="small" style="font-weight:600;margin-bottom:6px">What evidence tells you this student needs intensive Tier 3 support?</div>
+    <div class="small" style="font-weight:600;margin-bottom:6px">${q}</div>
     <div class="chips">${items.map(([k,l])=>`<button class="chip ${ev[k]?'sel':''}" data-ev="${k}" data-sid="${s.id}">${l}</button>`).join("")}</div>
     <input type="text" data-evnote="${s.id}" placeholder="Note (optional)" value="${esc(ev.note||'')}" style="margin-top:4px">
   </div>`;
@@ -1130,9 +1136,10 @@ function readingMeter(){
   const k3 = SECTION && SECTION.gradeNum>=0 && SECTION.gradeNum<=3;
   const over=c.rc>t;
   const perGrade=CONFIG.capacities.grovesK3PerGrade||4;
-  const grovesCap = k3 ? perGrade : CONFIG.capacities.groves;
+  const perClass48=CONFIG.capacities.grovesG48PerClass||4;
+  const grovesCap = k3 ? perGrade : perClass48;
   const grovesNote = k3 ? `${c.gr} recommended · ~${perGrade} per grade (shared with the other ${SECTION.grade} class)`
-    : `${c.gr} recommended${grovesCap?` · cap ${grovesCap}`:` · <span class="faint">capacity not set</span>`}`;
+    : `${c.gr} recommended · ${perClass48} spots for this class`;
   const rcMeter = k3 ? `<div class="meter ${over?'over':''}">
       <div class="lab">Reading Corps (Tier 2)</div>
       <div class="bar"><i style="width:${Math.min(100,c.rc/Math.max(t,1)*100)}%"></i></div>
@@ -1295,7 +1302,7 @@ function toggleMover(sid){
   if(i>=0)PLAN.movers.splice(i,1); else PLAN.movers.push({sid,subject:defSubj,winterBand:"",springBand:"",winterPct:"",springPct:"",plan:[],notes:""});
   save(); stMovers($("#stage"));
 }
-const MOVER_ACTIONS=["Tier 1 small group","Individual conference","Reading Corps","Groves","Math Corps","Skill-specific practice","Progress monitoring","Family communication"];
+const MOVER_ACTIONS=["Tier 1 small group","Individual conference","Reading Corps","Groves","Math Corps","MobyMax","Online adaptive practice","Skill-specific practice","Progress monitoring","Family communication"];
 function drawMoverPlans(){
   const box=$("#moverPlans"); if(!box) return;
   if(!PLAN.movers.length){ box.innerHTML=`<div class="notice">No students selected yet. Tap names above to commit to specific students.</div>`; return; }
@@ -1650,13 +1657,13 @@ function lowNoInterventionList(){
     <div class="chips">${out.slice(0,60).map(x=>`<span class="tag mon">${esc(x)}</span>`).join("")}</div>`;
 }
 function adminCapacity(){
-  const cap=CONFIG.capacities, perGrade=cap.grovesK3PerGrade||4;
-  let k3=0,g48=0,read=0,grov48=0; const grovesK3={K:0,"1":0,"2":0,"3":0};
+  const cap=CONFIG.capacities, perGrade=cap.grovesK3PerGrade||4, perClass48=cap.grovesG48PerClass||4;
+  let k3=0,g48=0,read=0; const grovesK3={K:0,"1":0,"2":0,"3":0}; const groves48=[];
   realSections().forEach(sec=>{
     const rPlan=subjectPlan(sec,"reading"), mPlan=subjectPlan(sec,"math");
     read+=recIn(rPlan,p=>p.readingTier==="t2");
     const t3=recIn(rPlan,p=>p.readingTier==="t3");
-    if(["K","1","2","3"].includes(sec.grade)) grovesK3[sec.grade]+=t3; else grov48+=t3;
+    if(["K","1","2","3"].includes(sec.grade)) grovesK3[sec.grade]+=t3; else groves48.push({name:sec.className,rec:t3});
     const mc=recIn(mPlan,p=>p.mathTier==="t2");
     if(sec.band==="K3")k3+=mc; else g48+=mc;
   });
@@ -1664,6 +1671,10 @@ function adminCapacity(){
     return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)">
       <span>Grade ${g}</span><span class="pill ${over?'warn':'ok'}">${rec} recommended · ${perGrade} spots${over?` · over by ${rec-perGrade}`:""}</span></div>`;}).join("");
   const k3Total=Object.values(grovesK3).reduce((a,b)=>a+b,0);
+  const classRows48=groves48.map(x=>{const over=x.rec>perClass48;
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)">
+      <span>${esc(x.name)}</span><span class="pill ${over?'warn':'ok'}">${x.rec} recommended · ${perClass48} spots${over?` · over by ${x.rec-perClass48}`:""}</span></div>`;}).join("");
+  const g48Total=groves48.reduce((a,b)=>a+b.rec,0);
   $("#adminBody").innerHTML=`
     <div class="notice" style="background:#fff6e6;border-color:#e8c97a;color:#6b4a00">
       <b>These are our capacities right now.</b> They can change — and there’s usually a little wiggle room depending on scheduling. Use this to guide conversations, not as a hard cutoff.</div>
@@ -1675,8 +1686,12 @@ function adminCapacity(){
         <h3 style="margin:0">Groves · Tier 3 (K–3)</h3>
         <span class="pill ${k3Total>perGrade*4?'warn':'ok'}">${k3Total} recommended · ${perGrade} per grade (${perGrade*4} total)</span></div>
       <div style="margin-top:8px">${gradeRows}</div>
-      <p class="small faint" style="margin-top:8px">Groves Tier 3 capacity is <b>${perGrade} students per grade</b> for K–3. Each grade’s two classes share those ${perGrade} spots.</p></div>
-    ${capRow("Groves · Tier 2 (4–8)",grov48,cap.groves)}`;
+      <p class="small faint" style="margin-top:8px">Groves Tier 3 capacity is <b>${perGrade} per grade</b> for K–3. Each grade’s two classes share those ${perGrade} spots.</p></div>
+    <div class="card"><div style="display:flex;justify-content:space-between;align-items:baseline">
+        <h3 style="margin:0">Groves · Tier 2 (4–8)</h3>
+        <span class="pill ${groves48.some(x=>x.rec>perClass48)?'warn':'ok'}">${g48Total} recommended · ${perClass48} per class</span></div>
+      <div style="margin-top:8px">${classRows48||'<span class="faint small">No 4–8 classes.</span>'}</div>
+      <p class="small faint" style="margin-top:8px">Groves Tier 2 capacity for grades 4–8 is <b>${perClass48} spots per class</b>. There is no Tier 3 reading program for 4–8 at this time.</p></div>`;
 }
 function capRow(label,rec,avail){
   const over = avail!=null && rec>avail;
@@ -1698,7 +1713,7 @@ function adminSettings(){
       <div><label class="fld" style="margin-top:0">4–8 Math Corps</label><input type="number" id="set_g48" value="${c.g48Math}"></div>
       <div><label class="fld" style="margin-top:0">Reading Corps (K–3)</label><input type="number" id="set_read" value="${c.reading}"></div>
       <div><label class="fld" style="margin-top:0">Groves T3 · per grade (K–3)</label><input type="number" id="set_grovK3" value="${c.grovesK3PerGrade??4}"></div>
-      <div><label class="fld" style="margin-top:0">Groves T2 · 4–8 total</label><input type="number" id="set_grov" value="${c.groves??""}" placeholder="set capacity"></div>
+      <div><label class="fld" style="margin-top:0">Groves T2 · per class (4–8)</label><input type="number" id="set_grov48" value="${c.grovesG48PerClass??4}"></div>
     </div></div>
     <div class="card"><h3>Achievement bands <span class="faint small">(percentile ranges — edit to match Bultum’s definitions)</span></h3>
       ${CONFIG.bands.map((b,i)=>`<div class="grid g4" style="align-items:end;margin-bottom:8px">
@@ -1713,7 +1728,7 @@ function saveSettings(){
   const c=Object.assign({},CONFIG);
   c.goals={achievement:+$("#set_ach").value||46, growth:+$("#set_gro").value||60};
   c.capacities={k3Math:+$("#set_k3").value||0,g48Math:+$("#set_g48").value||0,reading:+$("#set_read").value||0,
-    groves:$("#set_grov").value===""?null:+$("#set_grov").value, grovesK3PerGrade:+$("#set_grovK3").value||4};
+    groves:CONFIG.capacities.groves??null, grovesK3PerGrade:+$("#set_grovK3").value||4, grovesG48PerClass:+$("#set_grov48").value||4};
   c.bands=CONFIG.bands.map(b=>Object.assign({},b));
   document.querySelectorAll("[data-band]").forEach(inp=>{const[i,k]=inp.dataset.band.split(".");
     c.bands[+i][k]=(k==="label"||k==="color")?inp.value:(+inp.value);});
